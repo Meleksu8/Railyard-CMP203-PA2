@@ -1,0 +1,16 @@
+# the loop is a queue: the first wagon in is the first one out
+YARD 2 2 3
+TRAIN 6 1 2 3 6 5 4
+MOVE A L
+MOVE A L
+MOVE A L
+PRINT
+MOVE L D
+MOVE L D
+MOVE A S1
+MOVE A S1
+MOVE L D
+MOVE A D
+MOVE S1 D
+MOVE S1 D
+PRINT

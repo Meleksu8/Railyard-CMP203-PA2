@@ -1,0 +1,27 @@
+Error: No yard.
+Error: No yard.
+Yard built: 2 siding(s) of capacity 2, loop capacity 1.
+Error: A is empty.
+Train of 4 wagon(s) arrived.
+Error: The yard is not empty.
+Error: Wagon 3 cannot depart before wagon 1.
+Error: No track S3.
+Error: No track S9.
+Error: Cannot move from A to A.
+Error: Cannot move from D to S1.
+Error: Cannot move from S1 to A.
+Error: S1 is empty.
+Error: L is empty.
+Moved 3 from A to S1.
+Moved 4 from A to S1.
+Error: S1 is full.
+Moved 1 from A to L.
+Error: L is full.
+Error: Wagon 4 cannot depart before wagon 1.
+Moved 1 from L to D.
+--- Yard: 1 of 4 departed, 4 move(s) ---
+A: 2
+S1: 3 4
+S2:
+L:
+Error: Unknown command 'print'.

@@ -1,0 +1,24 @@
+Yard built: 2 siding(s) of capacity 2, loop capacity 3.
+Train of 6 wagon(s) arrived.
+Moved 1 from A to L.
+Moved 2 from A to L.
+Moved 3 from A to L.
+--- Yard: 0 of 6 departed, 3 move(s) ---
+A: 6 5 4
+S1:
+S2:
+L: 1 2 3
+Moved 1 from L to D.
+Moved 2 from L to D.
+Moved 6 from A to S1.
+Moved 5 from A to S1.
+Moved 3 from L to D.
+Moved 4 from A to D.
+Moved 5 from S1 to D.
+Moved 6 from S1 to D.
+Train assembled in 11 move(s).
+--- Yard: 6 of 6 departed, 11 move(s) ---
+A:
+S1:
+S2:
+L:

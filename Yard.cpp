@@ -101,6 +101,8 @@ Yard &Yard::operator=(const Yard &other)
         for(int i=0; i<numSidings; i++){
             sidings[i]=other.sidings[i];
         }
+    }else{
+        numSidings=0;
     }
     return *this;
 }

@@ -136,179 +136,116 @@ void planGreedy(const Yard &start, MoveList &plan)
 }
 
 // ---------------------------------------------------------------- your planner (YOU)
-// helper function 
-
-static int findBestSiding(Yard &yard, int wagon, int excludeSiding, int nextWagon, int window)
-{
-    int bestGood = -1;
-    int bestGoodDiff = 0; // top - wagon
-
-    int bestBad = -1;
-    int bestBadPenalty = 10000000;
-
-    int cap = yard.getSidingCapacity();
-    int numSidings = yard.getNumSidings();
-
-    for (int s = 1; s <= numSidings; s++)
-    {
-        if (s == excludeSiding) continue;
-
-        auto &sid = yard.getSiding(s);
-        int sz = sid.size();
-        if (sz >= cap) continue; // capacity is full
-
-        int freeSpace = cap - sz;
-        int topVal = 0;
-        bool hasTop = sid.peek(topVal);
-
-        if (!hasTop || topVal > wagon)
-        {
-            int diff = hasTop ? (topVal - wagon) : 100000;
-            if (bestGood == -1 || diff < bestGoodDiff)
-            {
-                bestGood = s;
-                bestGoodDiff = diff;
-            }
-            continue;
-        }
-
-        int nearFutureCount = 0;
-        for (int index = 0; index < sz; index++)
-        {
-            int w = sid.get(index);
-            if (w >= nextWagon && w < nextWagon + window)
-            {
-                ++nearFutureCount;
-            }
-        }
-
-        int penalty = nearFutureCount * 10000;
-        // wagon - topVal küçükse (yani topVal, wagon'a yakınsa) daha iyi
-        penalty += (wagon - topVal) * 20;
-        // dolu sidinglere hafif ceza
-        penalty += (cap - freeSpace) * 5;
-
-        if (penalty < bestBadPenalty)
-        {
-            bestBadPenalty = penalty;
-            bestBad = s;
-        }
-    }
-
-    if (bestGood != -1) return bestGood;
-    return bestBad;
-}
-
 void planTrain(const Yard &start, MoveList &plan)
 {
     plan.clear();
     Yard yard = start;
 
+    struct SearchNode {
+        Yard yard;
+        int firstFrom; //arama durumundaki ilk hamlenin kaynağı
+        int firstTo;   //arama durumundaki ilk hamlenin hedefi
+        int cost; //şimdiye kadarki hamle sayısı
+    };
+
+    //her wagon için 3 bilgi tutyoruz
+    struct WagonInfo{
+        int track; // Vagon hangi hatta
+        int position; //Bulunduğu hat üzerindeki konumu
+        int blockers; //önünde veya üstünde kaç vagon var
+    };
+
+    int next=yard.nextWagon();
+    int trainSize=yard.getTrainSize();
+    int end=0;
+    
+
     while (!yard.isAssembled())
     {
-        int frontA = 0;
-        bool hasA = yard.getArrival().peek(frontA);
-        int next = yard.nextWagon();
-
-        if (hasA && frontA == next)
-        {
-            go(yard, plan, TRACK_A, TRACK_D);
-            continue;
+        int remaining=trainSize-yard.getDeparted();
+        int window=remaining / 20;
+        int maxWindow=trainSize/20;
+        if(maxWindow < 3){
+            maxWindow=3;
+        }
+        if(window<3){
+            window=3;
+        }
+        if (window>maxWindow) {
+            window=maxWindow;
         }
 
-        int frontL = 0;
-        if (yard.getLoop().peek(frontL) && frontL == next)
-        {
-            go(yard, plan, TRACK_L, TRACK_D);
-            continue;
+        WagonInfo *info=new WagonInfo[trainSize + 1];
+
+        //başlangıç değerleri
+        for (int i=0; i<=trainSize; i++){
+            info[i].track=TRACK_D;
+            info[i].position=-1;
+            info[i].blockers=0;
         }
 
-        int cap = yard.getSidingCapacity();
-        int mostSpace = 0;
-        for (int s = 1; s <= yard.getNumSidings(); ++s)
-        {
-            int space = cap - yard.getSiding(s).size();
-            if (space > mostSpace) mostSpace = space;
+        //hatları tarıyoruz
+        //Arrival hattı için
+        int sizeA= yard.getArrival().size();
+        for(int i=0; i<=sizeA; i++){
+            int w=yard.getArrival().get(i); //wagon numarası
+            info[w].track=TRACK_A;
+            info[w].position=i;
+            info[w].blockers=i;
         }
 
-        // Büyük trenlerde (long) 50 vagonluk gibi dar pencereye sıkışmamak için ölçekli pencere
-        int maxWin = (cap > 800) ? (cap / 200) : 3;
-        if (maxWin < 3) maxWin = 3;
-        //if (maxWin > 10) maxWin = 10;
+        //Loop için
+        int sizeL= yard.getLoop().size();
+        for(int i=0; i<=sizeL; i++){
+            int w = yard.getLoop().get(i);
+            info[w].track=TRACK_L;
+            info[w].position=i;
+            info[w].blockers=i;
+        }
 
-        int window = mostSpace;
-        if (window > maxWin) window = maxWin;
-        if (window < 1) window = 1;
+        //For Stack
+        for(int s=1; s<=yard.getNumSidings(); s++){
+            int size=yard.getSiding(s).size();
 
-        int runLen = 0;
-        int aSize = yard.getArrival().size();
-        if (aSize > 0)
-        {
-            runLen = 1;
-            for (int i = 0; i + 1 < aSize; ++i)
-            {
-                if (yard.getArrival().get(i) + 1 == yard.getArrival().get(i + 1))
-                {
-                    ++runLen;
-                }
-                else
-                {
+            for(int i=0; i<size; i++){
+                int w = yard.getSiding(s).get(i);
+                info[w].track=s;
+                info[w].position=i;
+                info[w].blockers=(size-1)-i;
+
+            }
+        }
+
+        int consecutiveCount =1;
+
+        //Ardışıklık kontrolü 0 dan pencere sayısına kadar
+        for(int i=1; i<window; i++){
+            int previous=next+i-1; //böyle yazmamızın sebebi ardışıklığı sağlamak
+            int current = next+i; // yani bu numaraya sahip vagonu çekiyoruz aslında
+
+            if(info[previous].track != info[current].track){
+                break;
+            }
+
+            if(info[current].track ==  TRACK_A || info[current].track==TRACK_L){
+                if(info[current].position == info[previous].position +1){
+                    consecutiveCount++;
+                }else{
                     break;
                 }
             }
-        }
-
-        if (yard.getLoop().getCapacity() > 0 &&
-            yard.getLoop().size() < yard.getLoop().getCapacity() &&
-            hasA && frontA > next && runLen >= 2)
-        {
-            go(yard, plan, TRACK_A, TRACK_L);
-            continue;
-        }
-
-        int sWithNext = 0;
-        for (int s = 1; s <= yard.getNumSidings(); ++s)
-        {
-            if (yard.getSiding(s).indexOf(next) != -1)
-            {
-                sWithNext = s;
+            else if (info[current].track > 0){
+                if(info[current].position==info[previous].position - 1){
+                    consecutiveCount++;
+                }else{
+                    break;
+                }
+            }
+            else{
                 break;
             }
         }
-
-        bool moved = false;
-
-        if (sWithNext != 0)
-        {
-            int topS = 0;
-            if (yard.getSiding(sWithNext).peek(topS) && topS == next)
-            {
-                go(yard, plan, sWithNext, TRACK_D);
-                moved = true;
-            }
-            else if (yard.getSiding(sWithNext).peek(topS))
-            {
-                int targetS = findBestSiding(yard, topS, sWithNext, next, window);
-                if (targetS != -1)
-                {
-                    go(yard, plan, sWithNext, targetS);
-                    moved = true;
-                }
-            }
-        }
-        else if (hasA)
-        {
-            int targetS = findBestSiding(yard, frontA, -1, next, window);
-            if (targetS != -1)
-            {
-                go(yard, plan, TRACK_A, targetS);
-                moved = true;
-            }
-        }
-
-        if (!moved)
-        {
-            break;
-        }
+        
+        
     }
 }

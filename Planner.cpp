@@ -144,6 +144,8 @@ void planTrain(const Yard &start, MoveList &plan)
     Yard yard = start;
 
     const int Scapacity = yard.getSidingCapacity();
+    const int Lcapacity = yard.getLoopCapacity();
+    const int numSidings = yard.getNumSidings();
     const int trainSize = yard.getTrainSize();
     const int MAX_MOVES = 200000;
     int moves = 0;
@@ -155,36 +157,88 @@ void planTrain(const Yard &start, MoveList &plan)
         return true;
     };
 
+    // Yardımcı: kapasitesi müsait ve azalan sırayı (top > wagonVal) koruyan en iyi siding'i bulur
+    auto pickTargetSiding = [&](int wagonVal, int excludeSiding) -> int {
+        int bestGood = -1;
+        int bestDiff = 1000000000;
+        int bestFallback = -1;
+        int minSize = 1000000000;
+
+        for (int s = 1; s <= numSidings; ++s)
+        {
+            if (s == excludeSiding) continue;
+            if (yard.getSiding(s).size() >= Scapacity) continue;
+
+            if (yard.getSiding(s).size() < minSize)
+            {
+                minSize = yard.getSiding(s).size();
+                bestFallback = s;
+            }
+
+            int topS = 0;
+            bool hasTop = yard.getSiding(s).peek(topS);
+            if (!hasTop || topS > wagonVal)
+            {
+                int diff = hasTop ? (topS - wagonVal) : 1000000;
+                if (diff < bestDiff)
+                {
+                    bestDiff = diff;
+                    bestGood = s;
+                }
+            }
+        }
+        return (bestGood != -1) ? bestGood : bestFallback;
+    };
+
+    // Yardımcı: loop doluysa önündeki vagonu uygun bir siding'e boşaltır
+    auto freeLoopSlot = [&]() -> bool {
+        if (Lcapacity <= 0 || yard.getLoop().size() < Lcapacity) return true;
+        int frontL = 0;
+        if (!yard.getLoop().peek(frontL)) return true;
+
+        int next = yard.nextWagon();
+        if (frontL == next)
+        {
+            return stepMove(TRACK_L, TRACK_D);
+        }
+        int target = pickTargetSiding(frontL, -1);
+        if (target == -1) return false;
+        return stepMove(TRACK_L, target);
+    };
+
     auto flushDepartures = [&]() -> bool {
         bool any = false;
         while (!yard.isAssembled() && moves < MAX_MOVES)
         {
             int next = yard.nextWagon();
             int val = 0;
+            bool moved = false;
+
             if (yard.getArrival().peek(val) && val == next)
             {
                 if (!stepMove(TRACK_A, TRACK_D)) break;
-                any = true;
+                moved = true;
             }
-            else if (yard.getSiding(1).peek(val) && val == next)
+            else if (Lcapacity > 0 && yard.getLoop().peek(val) && val == next)
             {
-                if (!stepMove(1, TRACK_D)) break;
-                any = true;
-            }
-            else if (yard.getSiding(2).peek(val) && val == next)
-            {
-                if (!stepMove(2, TRACK_D)) break;
-                any = true;
-            }
-            else if (yard.getSiding(3).peek(val) && val == next)
-            {
-                if (!stepMove(3, TRACK_D)) break;
-                any = true;
+                if (!stepMove(TRACK_L, TRACK_D)) break;
+                moved = true;
             }
             else
             {
-                break;
+                for (int s = 1; s <= numSidings; ++s)
+                {
+                    if (yard.getSiding(s).peek(val) && val == next)
+                    {
+                        if (!stepMove(s, TRACK_D)) return any;
+                        moved = true;
+                        break;
+                    }
+                }
             }
+
+            if (!moved) break;
+            any = true;
         }
         return any;
     };
@@ -196,7 +250,7 @@ void planTrain(const Yard &start, MoveList &plan)
 
         int next = yard.nextWagon();
         int sidingWithNext = 0;
-        for (int s = 1; s <= 3; ++s)
+        for (int s = 1; s <= numSidings; ++s)
         {
             if (yard.getSiding(s).indexOf(next) != -1)
             {
@@ -205,10 +259,21 @@ void planTrain(const Yard &start, MoveList &plan)
             }
         }
 
-        // Durum A: 'next' henüz siding'lerde değil (Arrival içinde bekliyor).
-        // Arrival'dan çekip S1/S2/S3'e dağıt ki 'next' ortaya çıksın.
+        // Durum A: 'next' henüz siding'lerde değil (Arrival veya Loop içinde)
         if (sidingWithNext == 0)
         {
+            // Loop'ta 'next' varsa ve önündekiler çıkış/siding'e alınabiliyorsa loop'u döndür
+            int frontL = 0;
+            if (Lcapacity > 0 && !yard.getLoop().isEmpty() && yard.getLoop().peek(frontL) && frontL != next)
+            {
+                int target = pickTargetSiding(frontL, -1);
+                if (target != -1 && stepMove(TRACK_L, target))
+                {
+                    progressed = true;
+                    continue;
+                }
+            }
+
             int mid = next + (trainSize - next) / 2;
             while (!yard.getArrival().isEmpty() && moves < MAX_MOVES)
             {
@@ -216,55 +281,72 @@ void planTrain(const Yard &start, MoveList &plan)
                 {
                     progressed = true;
                     next = yard.nextWagon();
+                    mid = next + (trainSize - next) / 2;
                     break;
                 }
 
                 int frontA = 0;
                 if (!yard.getArrival().peek(frontA)) break;
 
-                // Önce S2/S3 kapasitesi uygunsa küçük/büyük ayrımıyla dağıt, yer yoksa S1'i kullan
-                if (frontA <= mid && yard.getSiding(2).size() < Scapacity)
+                // Yakın sıradaki vagonlar için loop'ta yer varsa beklet
+                if (Lcapacity > 0 && frontA > next && frontA <= next + Lcapacity &&
+                    yard.getLoop().size() < Lcapacity)
                 {
-                    if (!stepMove(TRACK_A, 2)) break;
+                    if (!stepMove(TRACK_A, TRACK_L)) break;
                     progressed = true;
+                    continue;
                 }
-                else if (frontA > mid && yard.getSiding(3).size() < Scapacity)
+
+                int targetSiding = -1;
+                if (frontA <= mid)
                 {
-                    if (!stepMove(TRACK_A, 3)) break;
-                    progressed = true;
-                }
-                else if (yard.getSiding(1).size() < Scapacity)
-                {
-                    if (!stepMove(TRACK_A, 1)) break;
-                    progressed = true;
-                }
-                else if (yard.getSiding(2).size() < Scapacity)
-                {
-                    if (!stepMove(TRACK_A, 2)) break;
-                    progressed = true;
-                }
-                else if (yard.getSiding(3).size() < Scapacity)
-                {
-                    if (!stepMove(TRACK_A, 3)) break;
-                    progressed = true;
+                    // Küçük vagonları ilk yarı siding'lere dağıt
+                    for (int s = 1; s <= numSidings; ++s)
+                    {
+                        if (yard.getSiding(s).size() < Scapacity)
+                        {
+                            targetSiding = s;
+                            break;
+                        }
+                    }
                 }
                 else
                 {
-                    break;
+                    // Büyük vagonları sondaki siding'lerden başlayarak dağıt
+                    for (int s = numSidings; s >= 1; --s)
+                    {
+                        if (yard.getSiding(s).size() < Scapacity)
+                        {
+                            targetSiding = s;
+                            break;
+                        }
+                    }
                 }
+
+                if (targetSiding == -1)
+                {
+                    if (!freeLoopSlot()) break;
+                    progressed = true;
+                    continue;
+                }
+
+                if (!stepMove(TRACK_A, targetSiding)) break;
+                progressed = true;
             }
         }
-        // Durum B: 'next' bir siding'in içinde (sidingWithNext), üstündeki vagonları diğer iki siding'e aktar.
+        // Durum B: 'next' bir siding'in içinde; üstündekileri diğer siding'lere / loop'a aç
         else
         {
-            int other1 = (sidingWithNext == 1) ? 2 : 1;
-            int other2 = (sidingWithNext == 3) ? 2 : 3;
-
             while (!yard.getSiding(sidingWithNext).isEmpty() && moves < MAX_MOVES)
             {
+                if (flushDepartures())
+                {
+                    progressed = true;
+                    break;
+                }
+
                 int topVal = 0;
                 if (!yard.getSiding(sidingWithNext).peek(topVal)) break;
-
                 if (topVal == yard.nextWagon())
                 {
                     if (!stepMove(sidingWithNext, TRACK_D)) break;
@@ -272,45 +354,24 @@ void planTrain(const Yard &start, MoveList &plan)
                     break;
                 }
 
-                int top1 = 0, top2 = 0;
-                bool has1 = yard.getSiding(other1).peek(top1);
-                bool has2 = yard.getSiding(other2).peek(top2);
-                bool can1 = yard.getSiding(other1).size() < Scapacity;
-                bool can2 = yard.getSiding(other2).size() < Scapacity;
-
-                // Azalan sırayı (top > topVal) koruyan ve farkı en küçük olan siding'i seç
-                bool good1 = can1 && (!has1 || top1 > topVal);
-                bool good2 = can2 && (!has2 || top2 > topVal);
-
-                int target = -1;
-                if (good1 && good2)
+                // Yakın gelecekte çıkacak bir vagonsa loop'ta yer varsa beklet
+                int curNext = yard.nextWagon();
+                if (Lcapacity > 0 && topVal > curNext && topVal <= curNext + Lcapacity &&
+                    yard.getLoop().size() < Lcapacity)
                 {
-                    int score1 = has1 ? (top1 - topVal) : 100000;
-                    int score2 = has2 ? (top2 - topVal) : 100000;
-                    target = (score1 <= score2) ? other1 : other2;
-                }
-                else if (good1)
-                {
-                    target = other1;
-                }
-                else if (good2)
-                {
-                    target = other2;
-                }
-                else if (can1 && can2)
-                {
-                    target = (yard.getSiding(other1).size() <= yard.getSiding(other2).size()) ? other1 : other2;
-                }
-                else if (can1)
-                {
-                    target = other1;
-                }
-                else if (can2)
-                {
-                    target = other2;
+                    if (!stepMove(sidingWithNext, TRACK_L)) break;
+                    progressed = true;
+                    continue;
                 }
 
-                if (target == -1) break;
+                int target = pickTargetSiding(topVal, sidingWithNext);
+                if (target == -1)
+                {
+                    if (!freeLoopSlot()) break;
+                    progressed = true;
+                    continue;
+                }
+
                 if (!stepMove(sidingWithNext, target)) break;
                 progressed = true;
             }

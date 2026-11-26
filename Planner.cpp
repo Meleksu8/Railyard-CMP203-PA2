@@ -150,6 +150,94 @@ void planTrain(const Yard &start, MoveList &plan)
     const int MAX_MOVES = 200000;
     int moves = 0;
 
+    //1. stacke arrivaldaki tüm vagonları attık
+    if(Scapacity==trainSize){
+        int frontA=0;
+        while(!yard.getArrival().isEmpty()){
+            yard.getArrival().peek(frontA);
+            go(yard, plan, TRACK_A, 1);
+        }
+    }
+    int numofsidings=yard.getNumSidings();
+    int sidingintervals=trainSize/(numofsidings-1);
+
+    while(!yard.isAssembled()){
+        //şimdi s1 den tek tek çekeceğiz ve uygun sidinglere atacağız
+        while(!yard.getSiding(1).isEmpty()){
+            int next= yard.nextWagon();
+            int S1peek=0;
+
+            //S1 in en tepesindeki nexte eşitse direkt D ye at
+            if(yard.getSiding(1).peek(S1peek) && S1peek==next){
+                go(yard, plan, 1, TRACK_D);
+                continue;
+            }
+            if(yard.getSiding(1).peek(S1peek) && S1peek<=sidingintervals){
+                go(yard, plan, 1, 2);
+                continue;
+            }
+            if(yard.getSiding(1).peek(S1peek) && S1peek>sidingintervals && S1peek<=sidingintervals*2){
+                go(yard, plan, 1, 3);
+                continue;
+            }
+            if(yard.getSiding(1).peek(S1peek) && S1peek>sidingintervals*2 && S1peek<=sidingintervals*3){
+                go(yard, plan, 1, 4);
+                continue;
+            }if(yard.getSiding(1).peek(S1peek) && S1peek>sidingintervals*3 && S1peek<=sidingintervals*4){
+                go(yard, plan, 1, 5);
+                continue;
+            }
+
+        }
+        // şimdi diğer sidinglerden S1 e atacağız
+        while(!yard.getSiding(2).isEmpty() || !yard.getSiding(3).isEmpty() || !yard.getSiding(4).isEmpty() || !yard.getSiding(5).isEmpty()){
+            int next= yard.nextWagon();
+            int S2peek=0;
+            int S3peek=0;
+            int S4peek=0;
+            int S5peek=0;
+
+            //tüm stacklerde next varsa hemen trackd ye atalım
+            if(yard.getSiding(2).peek(S2peek) && S2peek==next){
+                go(yard, plan, 2, TRACK_D);
+                continue;
+            }
+            if(yard.getSiding(3).peek(S3peek) && S3peek==next){
+                go(yard, plan, 3, TRACK_D);
+                continue;
+            }
+            if(yard.getSiding(4).peek(S4peek) && S4peek==next){
+                go(yard, plan, 4, TRACK_D);
+                continue;
+            }
+            if(yard.getSiding(5).peek(S5peek) && S5peek==next){
+                go(yard, plan, 5, TRACK_D);
+                continue;
+            }
+
+            //değilse s1 e atalım. ama en küçük olanlar
+            if(yard.getSiding(2).peek(S2peek) && S2peek<S3peek && S2peek<S4peek && S2peek<S5peek){
+                go(yard, plan, 2, 1);
+                continue;
+            }
+            if(yard.getSiding(3).peek(S3peek) && S3peek<S2peek && S3peek<S4peek && S3peek<S5peek){
+                go(yard, plan, 3, 1);
+                continue;
+            }
+            if(yard.getSiding(4).peek(S4peek) && S4peek<S2peek && S4peek<S3peek && S4peek<S5peek){
+                go(yard, plan, 4, 1);
+                continue;
+            }
+            if(yard.getSiding(5).peek(S5peek) && S5peek<S2peek && S5peek<S3peek && S5peek<S4peek){
+                go(yard, plan, 5, 1);
+                continue;
+            }
+        }
+        continue;
+
+    }
+    
+
     auto stepMove = [&](int from, int to) -> bool {
         if (moves >= MAX_MOVES) return false;
         go(yard, plan, from, to);

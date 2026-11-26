@@ -151,120 +151,6 @@ void planTrain(const Yard &start, MoveList &plan)
     int moves = 0;
 
     //1. stacke arrivaldaki tüm vagonları attık
-    if (Scapacity == trainSize && numSidings >= 2)
-    {
-        while (!yard.getArrival().isEmpty())
-        {
-            int frontA = 0;
-            if (!yard.getArrival().peek(frontA)) break;
-            if (frontA == yard.nextWagon())
-                go(yard, plan, TRACK_A, TRACK_D);
-            else
-                go(yard, plan, TRACK_A, 1);
-        }
-
-        // Tüm siding'lere (1..numSidings) vagon numarasına göre ilk dağıtım
-        int interval = (trainSize + numSidings - 1) / numSidings;
-        if (interval < 1) interval = 1;
-
-        while (!yard.getSiding(1).isEmpty())
-        {
-            int next = yard.nextWagon();
-            int s1Top = 0;
-            if (!yard.getSiding(1).peek(s1Top)) break;
-
-            if (s1Top == next)
-            {
-                go(yard, plan, 1, TRACK_D);
-                continue;
-            }
-
-            int bucket = (s1Top - 1) / interval;
-            if (bucket < 0) bucket = 0;
-            if (bucket >= numSidings) bucket = numSidings - 1;
-            int target = bucket + 1; // 1..numSidings
-
-            if (target == 1)
-            {
-                // S1'de kalması gereken ama altta kalanlar için en az dolu başka siding'e koy
-                int alt = -1, minSz = 2147483647;
-                for (int s = 2; s <= numSidings; ++s)
-                {
-                    int sz = yard.getSiding(s).size();
-                    if (sz < Scapacity && sz < minSz) { minSz = sz; alt = s; }
-                }
-                if (alt != -1) go(yard, plan, 1, alt);
-                else break;
-            }
-            else if (yard.getSiding(target).size() < Scapacity)
-            {
-                go(yard, plan, 1, target);
-            }
-        }
-
-        // 'next' hangi siding'deyse üstündekileri sıralı/azalan yığınlara açarak çıkar
-        while (!yard.isAssembled())
-        {
-            bool moved = false;
-            int next = yard.nextWagon();
-
-            // Önce herhangi bir siding'in tepesinde 'next' varsa doğrudan D'ye al
-            for (int s = 1; s <= numSidings; ++s)
-            {
-                int topVal = 0;
-                if (yard.getSiding(s).peek(topVal) && topVal == next)
-                {
-                    go(yard, plan, s, TRACK_D);
-                    moved = true;
-                    break;
-                }
-            }
-            if (moved) continue;
-
-            // 'next' hangi siding'in içinde?
-            int src = -1;
-            for (int s = 1; s <= numSidings; ++s)
-            {
-                if (yard.getSiding(s).indexOf(next) != -1)
-                {
-                    src = s;
-                    break;
-                }
-            }
-            if (src == -1) break;
-
-            int topVal = 0;
-            if (!yard.getSiding(src).peek(topVal)) break;
-
-            // Üstteki vagonu koymak için: önce tepesi topVal'den büyük olan en yakın siding'i ara
-            int bestGood = -1;
-            int bestDiff = 2147483647;
-            int bestEmpty = -1;
-            int bestFallback = -1;
-            int minSz = 2147483647;
-
-            for (int s = 1; s <= numSidings; ++s)
-            {
-                if (s == src) continue;
-                int sz = yard.getSiding(s).size();
-                if (sz >= Scapacity) continue;
-
-                if (sz < minSz) { minSz = sz; bestFallback = s; }
-                if (sz == 0 && bestEmpty == -1) bestEmpty = s;
-
-                int topS = 0;
-                if (yard.getSiding(s).peek(topS) && topS > topVal)
-                {
-                    int diff = topS - topVal;
-                    if (diff < bestDiff) { bestDiff = diff; bestGood = s; }
-                }
-            }
-
-            int dst = (bestGood != -1) ? bestGood : ((bestEmpty != -1) ? bestEmpty : bestFallback);
-            if (dst == -1) break;
-            go(yard, plan, src, dst);
-        }
-    }
     
     
 
@@ -360,6 +246,128 @@ void planTrain(const Yard &start, MoveList &plan)
         }
         return any;
     };
+
+    if (Scapacity >= trainSize && numSidings >= 2)
+    {
+        while (!yard.getArrival().isEmpty() && moves < MAX_MOVES)
+        {
+            if (flushDepartures()) continue;
+            int frontA = 0;
+            if (!yard.getArrival().peek(frontA)) break;
+            if (frontA == yard.nextWagon())
+            {
+                if (!stepMove(TRACK_A, TRACK_D)) break;
+            }
+            else
+            {
+                if (!stepMove(TRACK_A, 1)) break;
+            }
+        }
+
+        // S1'deki vagonları numSidings aralığına (1..numSidings) dağıt
+        int interval = (trainSize + numSidings - 1) / numSidings;
+        if (interval < 1) interval = 1;
+
+        while (!yard.getSiding(1).isEmpty() && moves < MAX_MOVES)
+        {
+            if (flushDepartures()) continue;
+            int s1Top = 0;
+            if (!yard.getSiding(1).peek(s1Top)) break;
+            if (s1Top == yard.nextWagon())
+            {
+                if (!stepMove(1, TRACK_D)) break;
+                continue;
+            }
+
+            int bucket = (s1Top - 1) / interval;
+            if (bucket < 0) bucket = 0;
+            if (bucket >= numSidings) bucket = numSidings - 1;
+            int target = bucket + 1;
+
+            // Hedef siding doluysa veya tepesinde daha küçük bir vagon varsa en uygun diğer siding'i seç
+            int chosen = -1;
+            int bestDiff = 2147483647;
+            if (target != 1 && yard.getSiding(target).size() < Scapacity)
+            {
+                chosen = target;
+            }
+            else
+            {
+                for (int s = 2; s <= numSidings; ++s)
+                {
+                    if (yard.getSiding(s).size() >= Scapacity) continue;
+                    int topS = 0;
+                    if (yard.getSiding(s).peek(topS) && topS > s1Top)
+                    {
+                        int diff = topS - s1Top;
+                        if (diff < bestDiff) { bestDiff = diff; chosen = s; }
+                    }
+                }
+                if (chosen == -1)
+                {
+                    for (int s = 2; s <= numSidings; ++s)
+                    {
+                        if (yard.getSiding(s).size() < Scapacity) { chosen = s; break; }
+                    }
+                }
+            }
+
+            if (chosen == -1 || !stepMove(1, chosen)) break;
+        }
+
+        // 'next' hangi siding'deyse yalnızca üstündekileri açarak 'next'i D'ye çıkar
+        while (!yard.isAssembled() && moves < MAX_MOVES)
+        {
+            if (flushDepartures()) continue;
+
+            int next = yard.nextWagon();
+            int src = -1;
+            for (int s = 1; s <= numSidings; ++s)
+            {
+                if (yard.getSiding(s).indexOf(next) != -1)
+                {
+                    src = s;
+                    break;
+                }
+            }
+            if (src == -1) break;
+
+            int topVal = 0;
+            if (!yard.getSiding(src).peek(topVal)) break;
+            if (topVal == next)
+            {
+                if (!stepMove(src, TRACK_D)) break;
+                continue;
+            }
+
+            // Üstteki vagonu koymak için: önce tepesi topVal'den büyük olan ve farkı en küçük siding'i seç
+            int bestGood = -1;
+            int bestDiff = 2147483647;
+            int bestEmpty = -1;
+            int bestFallback = -1;
+            int minSz = 2147483647;
+
+            for (int s = 1; s <= numSidings; ++s)
+            {
+                if (s == src) continue;
+                int sz = yard.getSiding(s).size();
+                if (sz >= Scapacity) continue;
+
+                if (sz < minSz) { minSz = sz; bestFallback = s; }
+                if (sz == 0 && bestEmpty == -1) bestEmpty = s;
+
+                int topS = 0;
+                if (yard.getSiding(s).peek(topS) && topS > topVal)
+                {
+                    int diff = topS - topVal;
+                    if (diff < bestDiff) { bestDiff = diff; bestGood = s; }
+                }
+            }
+
+            int dst = (bestGood != -1) ? bestGood : ((bestEmpty != -1) ? bestEmpty : bestFallback);
+            if (dst == -1 || !stepMove(src, dst)) break;
+        }
+    }
 
     while (!yard.isAssembled() && moves < MAX_MOVES)
     {

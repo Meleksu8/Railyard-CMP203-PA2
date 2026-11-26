@@ -1,6 +1,5 @@
 #include "Planner.h"
-#include <algorithm>
-#include <iostream>
+
 
 /* Level 6. The three planners of Planner.h:
  *   planRookie  GIVEN, an example of a planner. Read it before you start.
@@ -145,17 +144,14 @@ void planTrain(const Yard &start, MoveList &plan)
     plan.clear();
     Yard yard = start;
 
-    const int Scapacity = yard.getSidingCapacity();
-    const int Lcapacity = yard.getLoopCapacity();
-    const int numSidings = yard.getNumSidings();
-    const int trainSize = yard.getTrainSize();
-    const int MAX_MOVES = 200000;
-    int moves = 0;
+    const int Scapacity=yard.getSidingCapacity();
+    const int Lcapacity=yard.getLoopCapacity();
+    const int numSidings=yard.getNumSidings();
+    const int trainSize=yard.getTrainSize();
+    const int MAX_MOVES=200000;
+    int moves=0;
 
-    //1. stacke arrivaldaki tüm vagonları attık
-    
-    
-
+    //1. We moved all the wagons in the arrival stack.
     auto stepMove = [&](int from, int to) -> bool {
         if (moves >= MAX_MOVES) return false;
         go(yard, plan, from, to);
@@ -163,7 +159,7 @@ void planTrain(const Yard &start, MoveList &plan)
         return true;
     };
 
-    // Yardımcı: kapasitesi müsait ve azalan sırayı (top > wagonVal) koruyan en iyi siding'i bulur
+    // Helper: it finds best siding which have sufficient capacity and saves the (top > wagonVal) relationship 
     auto pickTargetSiding = [&](int wagonVal, int excludeSiding) -> int {
         int bestGood = -1;
         int bestDiff = 1000000000;
@@ -196,7 +192,7 @@ void planTrain(const Yard &start, MoveList &plan)
         return (bestGood != -1) ? bestGood : bestFallback;
     };
 
-    // Yardımcı: loop doluysa önündeki vagonu uygun bir siding'e boşaltır
+    // Helper: if the loop is full, it moves front wagon to the appropriate siding.
     auto freeLoopSlot = [&]() -> bool {
         if (Lcapacity <= 0 || yard.getLoop().size() < Lcapacity) return true;
         int frontL = 0;
@@ -249,11 +245,14 @@ void planTrain(const Yard &start, MoveList &plan)
         return any;
     };
 
+    //------------------–-------
+    //FOR LONG TRAINS
+    //--------------------------
     if (Scapacity >= trainSize && numSidings >= 2)
     {
         long long phase1End = 0;
         long long phase2End = 0;
-        long long bucketMoves[8] = {0}; // 250'lik next dilimleri için sayaç
+        long long bucketMoves[8] = {0}; // Counter for next 250 slices
         const int BUCKET_SPAN = 250;
 
         auto recordBucketMove = [&](int curNext) {
@@ -263,7 +262,7 @@ void planTrain(const Yard &start, MoveList &plan)
             bucketMoves[idx]++;
         };
 
-        // Faz 1: Arrival'daki vagonları S1'e çek (sırası geleni doğrudan D'ye gönder)
+        // Phase 1: All the wagons in the arrival moves to the S1 and if the wagon is equal to next, directly depart it
         while (!yard.getArrival().isEmpty() && moves < MAX_MOVES)
         {
             if (flushDepartures()) { recordBucketMove(yard.nextWagon()); continue; }
@@ -282,7 +281,7 @@ void planTrain(const Yard &start, MoveList &plan)
         }
         phase1End = moves;
 
-        // Faz 2: S1'deki vagonları numSidings aralığına (1..numSidings) dağıt
+        // Phase 2: Distributes the wagons in S1 to the numSidings range (1..numSidings).
         int interval = (trainSize + numSidings - 1) / numSidings;
         if (interval < 1) interval = 1;
 
@@ -335,7 +334,7 @@ void planTrain(const Yard &start, MoveList &plan)
         }
         phase2End = moves;
 
-        // Faz 3: 'next' hangi siding'deyse yalnızca üstündekileri açarak 'next'i D'ye çıkar
+        // Phase 3: Whichever siding 'next' is on, move it to D by opening only the items above it.
         while (!yard.isAssembled() && moves < MAX_MOVES)
         {
             if (flushDepartures()) { recordBucketMove(yard.nextWagon()); continue; }
@@ -361,7 +360,7 @@ void planTrain(const Yard &start, MoveList &plan)
                 continue;
             }
 
-            // 1. Öncelik: 'next' içermeyen siding'ler arasında topS > topVal ve farkı en küçük olan
+            // 1st Priority: Among sidings that do not contain 'next', the one where topS > topVal and the difference is the smallest.
             int bestGood = -1;
             int bestDiff = 2147483647;
             int bestEmpty = -1;
@@ -401,7 +400,7 @@ void planTrain(const Yard &start, MoveList &plan)
                 }
             }
 
-            // Tüm diğer siding'lerde 'next' varsa son çare olarak hasNext kontrolü olmadan seç
+            // If all other sidings have 'next', as a last resort selects it without checking for 'hasNext'.
             if (bestGood == -1 && bestEmpty == -1 && bestHighTop == -1 && bestFallback == -1)
             {
                 for (int s = 1; s <= numSidings; ++s)
@@ -429,21 +428,15 @@ void planTrain(const Yard &start, MoveList &plan)
             if (dst == -1 || !stepMove(src, dst)) break;
             recordBucketMove(yard.nextWagon());
         }
-        std::cerr << "[long-prof] trainSize=" << trainSize
-                  << " p1=" << phase1End
-                  << " p2=" << (phase2End - phase1End)
-                  << " p3=" << (moves - phase2End)
-                  << " total=" << moves << "\n";
-        for (int b = 0; b < 8; ++b)
-        {
-            if (bucketMoves[b] > 0)
-            {
-                std::cerr << "  next [" << (b * BUCKET_SPAN + 1) << ".." << ((b + 1) * BUCKET_SPAN) << "]: "
-                          << bucketMoves[b] << " moves\n";
-            }
-        }
+        
     }
+    //----------------------
+    // LONG TRAIN LOGIC ENDS
+    //----------------------
 
+    //-------------
+    //FOR MAIN FILES
+    //--------------
     while (!yard.isAssembled() && moves < MAX_MOVES)
     {
         bool progressed = flushDepartures();
@@ -460,10 +453,10 @@ void planTrain(const Yard &start, MoveList &plan)
             }
         }
 
-        // Durum A: 'next' henüz siding'lerde değil (Arrival veya Loop içinde)
+        // Scenario A: 'next' is not yet on the sidings (it is within an Arrival track or a Loop)
         if (sidingWithNext == 0)
         {
-            // Loop'ta 'next' varsa ve önündekiler çıkış/siding'e alınabiliyorsa loop'u döndür
+            // If there is a 'next' in the loop and the items ahead can be moved to an exit/siding, rotate the loop.
             int frontL = 0;
             if (Lcapacity > 0 && !yard.getLoop().isEmpty() && yard.getLoop().peek(frontL) && frontL != next)
             {
@@ -489,7 +482,7 @@ void planTrain(const Yard &start, MoveList &plan)
                 int frontA = 0;
                 if (!yard.getArrival().peek(frontA)) break;
 
-                // Yakın sıradaki vagonlar için loop'ta yer varsa beklet
+                // Holds on the loop if there's space available for nearby carriages.
                 if (Lcapacity > 0 && frontA > next && frontA <= next + Lcapacity &&
                     yard.getLoop().size() < Lcapacity)
                 {
@@ -501,7 +494,7 @@ void planTrain(const Yard &start, MoveList &plan)
                 int targetSiding = -1;
                 if (frontA <= mid)
                 {
-                    // Küçük vagonları ilk yarı siding'lere dağıt
+                    // Distributes the smaller wagons to the first half sidings.
                     for (int s = 1; s <= numSidings; ++s)
                     {
                         if (yard.getSiding(s).size() < Scapacity)
@@ -513,7 +506,7 @@ void planTrain(const Yard &start, MoveList &plan)
                 }
                 else
                 {
-                    // Büyük vagonları sondaki siding'lerden başlayarak dağıt
+                    // Distributes the large railcars starting from the last sidings.
                     for (int s = numSidings; s >= 1; --s)
                     {
                         if (yard.getSiding(s).size() < Scapacity)
@@ -535,7 +528,7 @@ void planTrain(const Yard &start, MoveList &plan)
                 progressed = true;
             }
         }
-        // Durum B: 'next' bir siding'in içinde; üstündekileri diğer siding'lere / loop'a aç
+        // Case B: 'next' is inside a siding; opens the contents above it to other sidings / loop.
         else
         {
             while (!yard.getSiding(sidingWithNext).isEmpty() && moves < MAX_MOVES)
@@ -555,7 +548,7 @@ void planTrain(const Yard &start, MoveList &plan)
                     break;
                 }
 
-                // Yakın gelecekte çıkacak bir vagonsa loop'ta yer varsa beklet
+                // If a carriage is due to arrive in the near future, it will be held back if there is space available in the loop.
                 int curNext = yard.nextWagon();
                 if (Lcapacity > 0 && topVal > curNext && topVal <= curNext + Lcapacity &&
                     yard.getLoop().size() < Lcapacity)

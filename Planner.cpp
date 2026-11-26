@@ -151,91 +151,121 @@ void planTrain(const Yard &start, MoveList &plan)
     int moves = 0;
 
     //1. stacke arrivaldaki tüm vagonları attık
-    if(Scapacity==trainSize){
-        int frontA=0;
-        while(!yard.getArrival().isEmpty()){
-            yard.getArrival().peek(frontA);
-            go(yard, plan, TRACK_A, 1);
+    if (Scapacity == trainSize && numSidings >= 2)
+    {
+        while (!yard.getArrival().isEmpty())
+        {
+            int frontA = 0;
+            if (!yard.getArrival().peek(frontA)) break;
+            if (frontA == yard.nextWagon())
+                go(yard, plan, TRACK_A, TRACK_D);
+            else
+                go(yard, plan, TRACK_A, 1);
         }
-    }
-    int numofsidings=yard.getNumSidings();
-    int sidingintervals=trainSize/(numofsidings-1);
 
-    while(!yard.isAssembled()){
-        //şimdi s1 den tek tek çekeceğiz ve uygun sidinglere atacağız
-        while(!yard.getSiding(1).isEmpty()){
-            int next= yard.nextWagon();
-            int S1peek=0;
+        // Tüm siding'lere (1..numSidings) vagon numarasına göre ilk dağıtım
+        int interval = (trainSize + numSidings - 1) / numSidings;
+        if (interval < 1) interval = 1;
 
-            //S1 in en tepesindeki nexte eşitse direkt D ye at
-            if(yard.getSiding(1).peek(S1peek) && S1peek==next){
+        while (!yard.getSiding(1).isEmpty())
+        {
+            int next = yard.nextWagon();
+            int s1Top = 0;
+            if (!yard.getSiding(1).peek(s1Top)) break;
+
+            if (s1Top == next)
+            {
                 go(yard, plan, 1, TRACK_D);
                 continue;
             }
-            if(yard.getSiding(1).peek(S1peek) && S1peek<=sidingintervals){
-                go(yard, plan, 1, 2);
-                continue;
-            }
-            if(yard.getSiding(1).peek(S1peek) && S1peek>sidingintervals && S1peek<=sidingintervals*2){
-                go(yard, plan, 1, 3);
-                continue;
-            }
-            if(yard.getSiding(1).peek(S1peek) && S1peek>sidingintervals*2 && S1peek<=sidingintervals*3){
-                go(yard, plan, 1, 4);
-                continue;
-            }if(yard.getSiding(1).peek(S1peek) && S1peek>sidingintervals*3 && S1peek<=sidingintervals*4){
-                go(yard, plan, 1, 5);
-                continue;
-            }
 
-        }
-        // şimdi diğer sidinglerden S1 e atacağız
-        while(!yard.getSiding(2).isEmpty() || !yard.getSiding(3).isEmpty() || !yard.getSiding(4).isEmpty() || !yard.getSiding(5).isEmpty()){
-            int next= yard.nextWagon();
-            int S2peek=0;
-            int S3peek=0;
-            int S4peek=0;
-            int S5peek=0;
+            int bucket = (s1Top - 1) / interval;
+            if (bucket < 0) bucket = 0;
+            if (bucket >= numSidings) bucket = numSidings - 1;
+            int target = bucket + 1; // 1..numSidings
 
-            //tüm stacklerde next varsa hemen trackd ye atalım
-            if(yard.getSiding(2).peek(S2peek) && S2peek==next){
-                go(yard, plan, 2, TRACK_D);
-                continue;
+            if (target == 1)
+            {
+                // S1'de kalması gereken ama altta kalanlar için en az dolu başka siding'e koy
+                int alt = -1, minSz = 2147483647;
+                for (int s = 2; s <= numSidings; ++s)
+                {
+                    int sz = yard.getSiding(s).size();
+                    if (sz < Scapacity && sz < minSz) { minSz = sz; alt = s; }
+                }
+                if (alt != -1) go(yard, plan, 1, alt);
+                else break;
             }
-            if(yard.getSiding(3).peek(S3peek) && S3peek==next){
-                go(yard, plan, 3, TRACK_D);
-                continue;
-            }
-            if(yard.getSiding(4).peek(S4peek) && S4peek==next){
-                go(yard, plan, 4, TRACK_D);
-                continue;
-            }
-            if(yard.getSiding(5).peek(S5peek) && S5peek==next){
-                go(yard, plan, 5, TRACK_D);
-                continue;
-            }
-
-            //değilse s1 e atalım. ama en küçük olanlar
-            if(yard.getSiding(2).peek(S2peek) && S2peek<S3peek && S2peek<S4peek && S2peek<S5peek){
-                go(yard, plan, 2, 1);
-                continue;
-            }
-            if(yard.getSiding(3).peek(S3peek) && S3peek<S2peek && S3peek<S4peek && S3peek<S5peek){
-                go(yard, plan, 3, 1);
-                continue;
-            }
-            if(yard.getSiding(4).peek(S4peek) && S4peek<S2peek && S4peek<S3peek && S4peek<S5peek){
-                go(yard, plan, 4, 1);
-                continue;
-            }
-            if(yard.getSiding(5).peek(S5peek) && S5peek<S2peek && S5peek<S3peek && S5peek<S4peek){
-                go(yard, plan, 5, 1);
-                continue;
+            else if (yard.getSiding(target).size() < Scapacity)
+            {
+                go(yard, plan, 1, target);
             }
         }
-        continue;
 
+        // 'next' hangi siding'deyse üstündekileri sıralı/azalan yığınlara açarak çıkar
+        while (!yard.isAssembled())
+        {
+            bool moved = false;
+            int next = yard.nextWagon();
+
+            // Önce herhangi bir siding'in tepesinde 'next' varsa doğrudan D'ye al
+            for (int s = 1; s <= numSidings; ++s)
+            {
+                int topVal = 0;
+                if (yard.getSiding(s).peek(topVal) && topVal == next)
+                {
+                    go(yard, plan, s, TRACK_D);
+                    moved = true;
+                    break;
+                }
+            }
+            if (moved) continue;
+
+            // 'next' hangi siding'in içinde?
+            int src = -1;
+            for (int s = 1; s <= numSidings; ++s)
+            {
+                if (yard.getSiding(s).indexOf(next) != -1)
+                {
+                    src = s;
+                    break;
+                }
+            }
+            if (src == -1) break;
+
+            int topVal = 0;
+            if (!yard.getSiding(src).peek(topVal)) break;
+
+            // Üstteki vagonu koymak için: önce tepesi topVal'den büyük olan en yakın siding'i ara
+            int bestGood = -1;
+            int bestDiff = 2147483647;
+            int bestEmpty = -1;
+            int bestFallback = -1;
+            int minSz = 2147483647;
+
+            for (int s = 1; s <= numSidings; ++s)
+            {
+                if (s == src) continue;
+                int sz = yard.getSiding(s).size();
+                if (sz >= Scapacity) continue;
+
+                if (sz < minSz) { minSz = sz; bestFallback = s; }
+                if (sz == 0 && bestEmpty == -1) bestEmpty = s;
+
+                int topS = 0;
+                if (yard.getSiding(s).peek(topS) && topS > topVal)
+                {
+                    int diff = topS - topVal;
+                    if (diff < bestDiff) { bestDiff = diff; bestGood = s; }
+                }
+            }
+
+            int dst = (bestGood != -1) ? bestGood : ((bestEmpty != -1) ? bestEmpty : bestFallback);
+            if (dst == -1) break;
+            go(yard, plan, src, dst);
+        }
     }
+    
     
 
     auto stepMove = [&](int from, int to) -> bool {
